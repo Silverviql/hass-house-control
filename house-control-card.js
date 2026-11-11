@@ -61,6 +61,14 @@ const offline = (s) => !s || s.state === 'unavailable' || s.state === 'unknown';
 
 function lightReading(s) {
   const a = s.attributes || {};
+  const domain = String(s.entity_id || '').split('.')[0];
+  // A blind reads like a dimmer: "on" is not closed, the brightness is how far it is open.
+  if (domain === 'cover') {
+    const pos = num(a.current_position);
+    const open = s.state !== 'closed' && (pos === null || pos > 0);
+    return pos !== null && open ? { on: true, brightness: clamp(pos / 100, 0.05, 1) } : { on: open };
+  }
+  if (domain === 'vacuum') return { on: s.state === 'cleaning' };
   const light = { on: s.state === 'on' };
   const b = num(a.brightness);
   if (s.state === 'on' && b !== null) light.brightness = clamp(b / 255, 0.05, 1);
@@ -87,6 +95,8 @@ function acReading(s) {
   else if (lo !== null && hi !== null) ac.target = Math.round((lo + hi) / 2);
   const room = num(a.current_temperature);
   if (room !== null) ac.roomTemp = room;
+  // A thermostat that has reached its target is on but not heating.
+  if (typeof a.hvac_action === 'string') ac.idle = s.state !== 'off' && a.hvac_action === 'idle';
   const fans = fanTable(a.fan_modes);
   const fan = a.fan_mode ? fanPanel(a.fan_mode) : null;
   if (fan && fans[fan]) ac.fan = fan;
@@ -118,6 +128,15 @@ function serviceCalls(entityId, patch, state, attributes = {}) {
   if (domain === 'switch' || domain === 'input_boolean' || domain === 'fan') {
     if (typeof patch.on !== 'boolean') return [];
     return [call(patch.on ? 'turn_on' : 'turn_off')];
+  }
+  if (domain === 'cover') {
+    if (patch.on === false) return [call('close_cover')];
+    if (typeof patch.brightness === 'number') return [call('set_cover_position', { position: Math.round(patch.brightness * 100) })];
+    return patch.on === true ? [call('open_cover')] : [];
+  }
+  if (domain === 'vacuum') {
+    if (typeof patch.on !== 'boolean') return [];
+    return [call(patch.on ? 'start' : 'return_to_base')];
   }
   if (domain === 'light') {
     if (patch.on === false) return [call('turn_off')];
@@ -224,24 +243,25 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
   }
   const bindings = new Set();
   for (const group of ['lights', 'acs']) for (const d of plan[group] || []) {
-    need(rooms.has(d.room) && point(d.pos), `${d.id} неверная комната или позиция`);
+    need(rooms.has(d.room) && (point(d.pos) || (group === 'acs' && d.type === 'floor' && d.pos === undefined)), `${d.id} неверная комната или позиция`);
     for (const k of ['y', 'rot', 'length', 'min', 'max']) if (k in d) need(Number.isFinite(d[k]) && Math.abs(d[k]) <= 10000, `${d.id}.${k}: неверно`);
     if (d.color !== undefined) need(color(d.color), `${d.id} неверный цвет`);
     need(!('tuya' in d), `${d.id} привязки к другим платформам не поддерживаются`);
     if (group === 'lights') {
-      need(['ceiling', 'pendant', 'spots', 'downlights', 'floor', 'table', 'strip', 'towelRail', 'fan', 'kettle'].includes(d.type), `${d.id} неверный тип светильника`);
+      need(['ceiling', 'pendant', 'spots', 'downlights', 'floor', 'table', 'strip', 'towelRail', 'fan', 'kettle', 'blind', 'vacuum'].includes(d.type), `${d.id} неверный тип светильника`);
       if (d.type === 'downlights') need(Array.isArray(d.points) && d.points.length > 0 && d.points.length <= 64 && d.points.every((q) => point(q)), `${d.id}: неверные points`);
       for (const k of ['width', 'height']) if (k in d) need(Number.isFinite(d[k]) && d[k] > 0.05 && d[k] <= 5, `${d.id}.${k}: неверно`);
       need(d.capabilities === undefined || (Array.isArray(d.capabilities) && d.capabilities.every((c) => ['brightness', 'temp', 'color'].includes(c))), `${d.id} capabilities неверны`);
       if ('length' in d) need(d.length > 0 && d.length <= 100, `${d.id} неверная длина`);
     } else {
-      need(['north', 'south', 'east', 'west'].includes(d.wall), `${d.id} неверная стена крепления`);
+      need(d.type === undefined || ['wall', 'floor'].includes(d.type), `${d.id}: неверный тип`);
+      if (d.type !== 'floor') need(['north', 'south', 'east', 'west'].includes(d.wall), `${d.id} неверная стена крепления`);
       need((d.min ?? 16) < (d.max ?? 30) && (d.min ?? 16) >= 5 && (d.max ?? 30) <= 40, `${d.id} неверный диапазон температур`);
     }
     for (const k of ['link', 'sensor']) if (d[k] !== undefined) {
       const link = d[k];
       need(object(link) && link.service === 'homeassistant' && typeof link.id === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(link.id), `${d.id}.${k} нужна корректная сущность Home Assistant`);
-      const domains = k === 'sensor' ? ['sensor'] : group === 'acs' ? ['climate'] : ['light', 'switch', 'input_boolean', 'fan'];
+      const domains = k === 'sensor' ? ['sensor'] : group === 'acs' ? ['climate'] : d.type === 'blind' ? ['cover'] : d.type === 'vacuum' ? ['vacuum'] : ['light', 'switch', 'input_boolean', 'fan'];
       need(domains.includes(link.id.split('.')[0]), `${d.id}.${k} тип сущности не подходит`);
       bindings.add(link.id);
     }
@@ -630,7 +650,7 @@ class HouseControlCard extends HTMLElement {
     const cfg = kind === 'light' ? this._lights.get(id) : this._acs.get(id);
     const entity = haLink(cfg);
     if (!entity || !this._hass) return; // not linked: the 3D model just simulates it
-    if (!['light', 'switch', 'climate', 'input_boolean', 'fan'].includes(entity.split('.')[0])) return;
+    if (!['light', 'switch', 'climate', 'input_boolean', 'fan', 'cover', 'vacuum'].includes(entity.split('.')[0])) return;
     const keys = kind === 'light' ? LIGHT_KEYS : AC_KEYS;
     const clean = pick(patch, keys);
     if ('target' in clean) {
