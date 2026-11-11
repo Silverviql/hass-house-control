@@ -231,6 +231,7 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
   need(plan.rooms?.length > 0, 'Нужна хотя бы одна комната');
   if (plan.name !== undefined) need(typeof plan.name === 'string', 'имя должно быть текстом');
   const rooms = new Set(plan.rooms.map((r) => r.id));
+  for (const r of plan.rooms) if (r.part !== undefined) need(typeof r.part === 'string' && r.part !== r.id && plan.rooms.some((x) => x.id === r.part && x.part === undefined), `${r.id}.part: неизвестная комната`);
   for (const r of plan.rooms) {
     need(point(r.rect, 4) && r.rect[2] > 0 && r.rect[3] > 0, `${r.id} неверный размер комнаты`);
     need(r.floor === undefined || ['oak', 'walnut', 'tile', 'stone'].includes(r.floor), `${r.id} неверный тип пола`);
@@ -250,6 +251,7 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
     if (group === 'lights') {
       need(['ceiling', 'pendant', 'spots', 'downlights', 'floor', 'table', 'strip', 'towelRail', 'fan', 'kettle', 'blind', 'vacuum'].includes(d.type), `${d.id} неверный тип светильника`);
       if (d.power !== undefined) need(typeof d.power === 'string' && d.power !== d.id && (plan.lights || []).some((l) => l.id === d.power && l.power === undefined), `${d.id}.power: неизвестный выключатель`);
+      if (d.paths !== undefined) need(d.type === 'strip' && Array.isArray(d.paths) && d.paths.length > 0 && d.paths.length <= 16 && d.paths.every((q) => Array.isArray(q) && q.length >= 2 && q.length <= 32 && q.every((pt) => point(pt))), `${d.id}: неверные paths`);
       if (d.type === 'downlights') need(Array.isArray(d.points) && d.points.length > 0 && d.points.length <= 64 && d.points.every((q) => point(q)), `${d.id}: неверные points`);
       for (const k of ['width', 'height']) if (k in d) need(Number.isFinite(d[k]) && d[k] > 0.05 && d[k] <= 5, `${d.id}.${k}: неверно`);
       need(d.capabilities === undefined || (Array.isArray(d.capabilities) && d.capabilities.every((c) => ['brightness', 'temp', 'color'].includes(c))), `${d.id} capabilities неверны`);
