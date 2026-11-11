@@ -42,6 +42,7 @@ Bring **[House Control](https://github.com/0xProbabillity/house-control)**'s liv
 - **Lamps behind a shared wall switch** (`power`): when the switch is off they are dark and get no commands; a tap
   on one switches the wall switch on first, then the lamp a few seconds later.
 - **A thermostat that has reached its target** (`hvac_action: idle`) is shown as idle.
+- **Numbered fan speeds** (`fan_modes: ["1", "2", "3", "4"]`) are offered as low, medium, high and turbo.
 
 **Climate.** `sensors` in the plan names each room's temperature and humidity sensors, `outdoor` a `weather.*`
 entity (and optionally sensors of your own). The card shows them as chips over the rooms in 3D, next to the room
@@ -51,6 +52,13 @@ headings and in a line under the home's name: outside temperature, humidity, sky
 **Rooms of several rectangles.** A rectangle with `"part": "<room id>"` belongs to that room: one name, one tab.
 
 **Interface.** The card and the 3D app are in Russian, and the scene buttons are shown (upstream hides them).
+The room last looked at and the climate chips' on/off are remembered per dashboard in the browser (the card keeps
+them for the sandboxed 3D app). A card taller than it is wide (a tablet held upright) puts the model above the
+controls instead of beside them.
+
+**Wall tablet.** With [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) installed, open the dashboard with
+`?kiosk` (for example `/dom-3d/home?kiosk`) to hide Home Assistant's header and sidebar. Add `&cache` to keep it
+on that device across reloads, and open `?clear_km_cache` to undo that.
 
 The new plan fields are described in the House Control fork's
 [docs/floor-plan.md](https://github.com/Silverviql/house-control/blob/ha-devices/docs/floor-plan.md). Every entity
@@ -173,7 +181,6 @@ WHEEL="640,330,-240,8" node tools/preview.mjs . my-plan.json shot.png # zoom in 
 - Parts of the 3D app the card does not show (the plan editor, AI access) are still in English.
 - The guard that checks which integration plan entities come from defaults to `xiaomi_home` (the setup this was built against); set `platform` to match yours.
 - The card is tested against Home Assistant's modern storage dashboards; YAML-mode dashboards are untested.
-- The card runs the 3D app in a sandboxed iframe without storage, so the climate chips' on/off button is not remembered across page loads.
 - Lamps behind a shared switch get their "on" about 4 seconds after the switch, to let them boot; slower lamps may miss it.
 
 ## Credits

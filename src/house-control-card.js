@@ -46,6 +46,16 @@ function fanPanel(name) {
 
 function fanTable(names = []) {
   const out = {};
+  // Some units number their speeds ("1".."4") instead of naming them: lowest is low, highest is turbo.
+  const numbered = names.filter((n) => /^\d+$/.test(String(n))).sort((a, b) => Number(a) - Number(b));
+  if (numbered.length >= 2) {
+    const steps = { 2: ['low', 'high'], 3: ['low', 'medium', 'high'], 4: ['low', 'medium', 'high', 'turbo'] }[numbered.length]
+      || ['low', 'medium', 'high', 'turbo'];
+    numbered.forEach((name, i) => {
+      const p = steps[Math.min(steps.length - 1, Math.round(i * (steps.length - 1) / (numbered.length - 1)))];
+      if (!out[p]) out[p] = name;
+    });
+  }
   for (const name of names) {
     if (String(name).toLowerCase() === 'off') continue;
     const p = fanPanel(name);
@@ -98,8 +108,8 @@ function acReading(s) {
   // A thermostat that has reached its target is on but not heating.
   if (typeof a.hvac_action === 'string') ac.idle = s.state !== 'off' && a.hvac_action === 'idle';
   const fans = fanTable(a.fan_modes);
-  const fan = a.fan_mode ? fanPanel(a.fan_mode) : null;
-  if (fan && fans[fan]) ac.fan = fan;
+  const fan = a.fan_mode ? Object.keys(fans).find((k) => fans[k] === a.fan_mode) : null;
+  if (fan) ac.fan = fan;
   const swings = a.swing_modes || [];
   if (a.swing_mode && swings.length) ac.swing = a.swing_mode === 'off' ? 'off' : 'swing';
   const presets = a.preset_modes || [];
@@ -658,6 +668,29 @@ class HouseControlCard extends HTMLElement {
     this._frame?.contentWindow?.postMessage({ __houseHost: 1, fn, args }, '*');
   }
 
+  // View settings of the 3D app (climate chips on or off, the room last looked at). The app runs in a
+  // sandbox without storage, so the card keeps them, per dashboard, in this browser.
+  _prefsKey() {
+    return `house-control-card:prefs:${location.pathname}`;
+  }
+
+  _loadPrefs() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(this._prefsKey()) || '{}');
+      const out = {};
+      if (typeof raw.climateLabels === 'boolean') out.climateLabels = raw.climateLabels;
+      if (typeof raw.room === 'string' && /^[a-zA-Z0-9_.-]{1,100}$/.test(raw.room)) out.room = raw.room;
+      return out;
+    } catch { return {}; }
+  }
+
+  _savePrefs(msg) {
+    const next = this._loadPrefs();
+    if (typeof msg.climateLabels === 'boolean') next.climateLabels = msg.climateLabels;
+    if (typeof msg.room === 'string' && /^[a-zA-Z0-9_.-]{1,100}$/.test(msg.room)) next.room = msg.room;
+    try { localStorage.setItem(this._prefsKey(), JSON.stringify(next)); } catch { /* not remembered */ }
+  }
+
   _onMessage(e) {
     if (!this._frame || e.source !== this._frame.contentWindow || !e.data?.__house) return;
     const msg = e.data.msg || {};
@@ -666,6 +699,7 @@ class HouseControlCard extends HTMLElement {
       this._ready = true;
       this._updateTools();
       this._send('shown');
+      this._send('setPrefs', this._loadPrefs());
       if (this._hass) this._push(true);
     } else if (msg.type === 'command') {
       const sender = e.source;
@@ -674,6 +708,8 @@ class HouseControlCard extends HTMLElement {
         () => reply({}),
         (err) => reply({ error: String(err?.message || err || 'Ошибка вызова') }),
       );
+    } else if (msg.type === 'prefs') {
+      this._savePrefs(msg);
     } else if (msg.type === 'toggleEdit') {
       this._setToolsOpen(!this._toolsOpen);
     } else if (msg.type === 'close') {

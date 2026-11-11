@@ -29,8 +29,9 @@ html.embed .ha-edit-trigger.active { background: #303744; color: #bcd7ff; box-sh
 html.embed .ha-edit-trigger.has-preview::after { content: ''; position: absolute; right: -1px; top: -1px; width: 6px; height: 6px; border-radius: 50%; background: #f1bf6b; box-shadow: 0 0 8px #f1bf6b66; }
 html.embed .ha-edit-trigger:focus-visible { outline: 2px solid #8bbcff; outline-offset: 3px; }
 
-/* Wide card (a dashboard column or more): the model on the left, the controls on the right. */
-@media (min-width: 760px) {
+/* Wide card in landscape (a dashboard column or more): the model on the left, the controls on the right.
+   A tall card (a tablet held upright) keeps the stacked layout: the model above, the controls below. */
+@media (min-width: 760px) and (min-aspect-ratio: 1/1) {
   html.embed .card { --side: min(420px, 44%); --stage-h: 100%; }
   html.embed .stage { inset: 0 var(--side) 0 0; height: auto; }
   html.embed .stage canvas {

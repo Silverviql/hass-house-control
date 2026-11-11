@@ -4,7 +4,8 @@
 //   npm i --no-save playwright && npx playwright install chromium-headless-shell
 // Usage: node tools/preview.mjs <dir with the built card> <plan.json> <out.png> [on|off] [width] [height]
 // Env: CLICK="text|text" clicks a text in the 3D app, WHEEL="x,y,delta,steps" zooms, WAIT=ms before acting,
-//      ONIDS / OFFIDS="entity,entity" override single states, FEVAL="js" evaluates in the 3D app's frame.
+//      ONIDS / OFFIDS="entity,entity" override single states, FEVAL="js" evaluates in the 3D app's frame,
+//      ACT="js" runs in that frame after CLICK, RELOAD=1 then reloads the page (to test what is remembered).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,7 +38,7 @@ for (const id of ids) {
   else if (dom === 'cover') states[id] = { entity_id: id, state: 'open', attributes: { current_position: 55 } };
   else if (dom === 'vacuum') states[id] = { entity_id: id, state: 'cleaning', attributes: {} };
   else if (dom === 'climate' && id.includes('0xa4c13885')) states[id] = { entity_id: id, state: 'heat', attributes: { temperature: 27, current_temperature: 24.5, hvac_modes: ['off', 'heat'], hvac_action: 'heating', min_temp: 5, max_temp: 35 } };
-  else if (dom === 'climate') states[id] = { entity_id: id, state: 'cool', attributes: { temperature: 24, current_temperature: 25, hvac_modes: ['off','cool','heat'], fan_modes: ['1','2','3'], min_temp: 16, max_temp: 32 } };
+  else if (dom === 'climate') states[id] = { entity_id: id, state: 'cool', attributes: { temperature: 24, current_temperature: 25, hvac_modes: ['off','cool','heat'], fan_modes: ['1','2','3','4'], fan_mode: '2', min_temp: 16, max_temp: 32 } };
   else if (dom === 'light') states[id] = { entity_id: id, state: '${lightsState}', attributes: { brightness: 200, color_temp_kelvin: 3000, supported_color_modes: ['color_temp'], color_mode: 'color_temp' } };
   else states[id] = { entity_id: id, state: '${lightsState}', attributes: {} };
 }
@@ -83,6 +84,14 @@ if (process.env.CLICK) {
     await frame.getByText(text, { exact: true }).first().click();
     await page.waitForTimeout(3000);
   }
+}
+if (process.env.ACT) {
+  await page.frames().find((f) => f.url().includes('embed.html')).evaluate(process.env.ACT);
+  await page.waitForTimeout(1500);
+}
+if (process.env.RELOAD) {
+  await page.reload();
+  await page.waitForTimeout(Number(process.env.WAIT || 9000));
 }
 if (process.env.AFTER) await page.waitForTimeout(Number(process.env.AFTER));
 if (process.env.WHEEL) {
