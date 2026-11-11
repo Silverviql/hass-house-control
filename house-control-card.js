@@ -180,15 +180,15 @@ function stableJSON(v) {
   return JSON.stringify(v);
 }
 function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
-  const need = (ok, text) => { if (!ok) throw new Error(`地图校验失败：${text}`); };
-  need(object(plan), '需要 JSON 对象');
-  need(new TextEncoder().encode(JSON.stringify(plan)).length <= MAX_PLAN_BYTES, '文件不能超过 1 MB');
+  const need = (ok, text) => { if (!ok) throw new Error(`Ошибка проверки плана: ${text}`); };
+  need(object(plan), 'Нужен JSON-объект');
+  need(new TextEncoder().encode(JSON.stringify(plan)).length <= MAX_PLAN_BYTES, 'Файл не должен превышать 1 МБ');
   function safe(v, depth = 0) {
-    need(depth <= 20, '嵌套层级过深');
-    if (typeof v === 'number') need(Number.isFinite(v), '数值必须有限');
-    if (typeof v === 'string') need(v.length <= 500, '文本过长');
+    need(depth <= 20, 'слишком глубокая вложенность');
+    if (typeof v === 'number') need(Number.isFinite(v), 'числа должны быть конечными');
+    if (typeof v === 'string') need(v.length <= 500, 'слишком длинный текст');
     if (v && typeof v === 'object') for (const [k, val] of Object.entries(v)) {
-      need(!['__proto__', 'prototype', 'constructor'].includes(k), '包含危险字段');
+      need(!['__proto__', 'prototype', 'constructor'].includes(k), 'содержит опасные поля');
       safe(val, depth + 1);
     }
   }
@@ -198,88 +198,90 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
   const limits = { rooms: 100, lights: 256, acs: 64, scenes: 64, furniture: 500, openings: 300 };
   const ids = new Set();
   for (const [group, limit] of Object.entries(limits)) {
-    need(plan[group] === undefined || Array.isArray(plan[group]), `${group} 必须为数组`);
-    need((plan[group] || []).length <= limit, `${group} 数量超过 ${limit}`);
+    need(plan[group] === undefined || Array.isArray(plan[group]), `${group} должно быть массивом`);
+    need((plan[group] || []).length <= limit, `${group} больше максимума ${limit}`);
     for (const item of plan[group] || []) {
-      need(object(item), `${group} 项必须为对象`);
+      need(object(item), `${group} элемент должен быть объектом`);
       if (!['furniture', 'openings'].includes(group)) {
-        need(typeof item.id === 'string' && /^[a-zA-Z0-9_.-]+$/.test(item.id) && item.id.length <= 100, `${group} 的 id 无效`);
-        need(!ids.has(item.id), `重复 id ${item.id}`); ids.add(item.id);
+        need(typeof item.id === 'string' && /^[a-zA-Z0-9_.-]+$/.test(item.id) && item.id.length <= 100, `${group} : неверный id`);
+        need(!ids.has(item.id), `Повторяющийся id ${item.id}`); ids.add(item.id);
       }
-      if (item.name !== undefined) need(typeof item.name === 'string', `${group} 名称必须为文本`);
+      if (item.name !== undefined) need(typeof item.name === 'string', `${group} имя должно быть текстом`);
     }
   }
-  need(plan.rooms?.length > 0, '至少需要一个房间');
-  if (plan.name !== undefined) need(typeof plan.name === 'string', '名称必须为文本');
+  need(plan.rooms?.length > 0, 'Нужна хотя бы одна комната');
+  if (plan.name !== undefined) need(typeof plan.name === 'string', 'имя должно быть текстом');
   const rooms = new Set(plan.rooms.map((r) => r.id));
   for (const r of plan.rooms) {
-    need(point(r.rect, 4) && r.rect[2] > 0 && r.rect[3] > 0, `${r.id} 房间尺寸无效`);
-    need(r.floor === undefined || ['oak', 'walnut', 'tile', 'stone'].includes(r.floor), `${r.id} 地板类型无效`);
+    need(point(r.rect, 4) && r.rect[2] > 0 && r.rect[3] > 0, `${r.id} неверный размер комнаты`);
+    need(r.floor === undefined || ['oak', 'walnut', 'tile', 'stone'].includes(r.floor), `${r.id} неверный тип пола`);
   }
-  for (const key of ['wallHeight', 'interiorWallHeight']) if (key in plan) need(Number.isFinite(plan[key]) && plan[key] >= 0 && plan[key] <= 10, `${key} 无效`);
-  if ('outdoorTemp' in plan) need(Number.isFinite(plan.outdoorTemp), 'outdoorTemp 无效');
+  for (const key of ['wallHeight', 'interiorWallHeight']) if (key in plan) need(Number.isFinite(plan[key]) && plan[key] >= 0 && plan[key] <= 10, `${key} неверно`);
+  if ('outdoorTemp' in plan) need(Number.isFinite(plan.outdoorTemp), 'неверный outdoorTemp');
   if ('camera' in plan) {
-    need(object(plan.camera), 'camera 必须为对象');
-    for (const k of ['azimuth', 'elevation']) if (k in plan.camera) need(Number.isFinite(plan.camera[k]), `camera.${k} 无效`);
+    need(object(plan.camera), 'camera должен быть объектом');
+    for (const k of ['azimuth', 'elevation']) if (k in plan.camera) need(Number.isFinite(plan.camera[k]), `camera.${k} неверно`);
   }
   const bindings = new Set();
   for (const group of ['lights', 'acs']) for (const d of plan[group] || []) {
-    need(rooms.has(d.room) && point(d.pos), `${d.id} 房间引用或位置无效`);
-    for (const k of ['y', 'rot', 'length', 'min', 'max']) if (k in d) need(Number.isFinite(d[k]) && Math.abs(d[k]) <= 10000, `${d.id}.${k} 无效`);
-    if (d.color !== undefined) need(color(d.color), `${d.id} 色彩无效`);
-    need(!('tuya' in d), `${d.id} 不支持其他平台绑定`);
+    need(rooms.has(d.room) && point(d.pos), `${d.id} неверная комната или позиция`);
+    for (const k of ['y', 'rot', 'length', 'min', 'max']) if (k in d) need(Number.isFinite(d[k]) && Math.abs(d[k]) <= 10000, `${d.id}.${k}: неверно`);
+    if (d.color !== undefined) need(color(d.color), `${d.id} неверный цвет`);
+    need(!('tuya' in d), `${d.id} привязки к другим платформам не поддерживаются`);
     if (group === 'lights') {
-      need(['ceiling', 'pendant', 'spots', 'floor', 'table', 'strip'].includes(d.type), `${d.id} 灯具类型无效`);
-      need(d.capabilities === undefined || (Array.isArray(d.capabilities) && d.capabilities.every((c) => ['brightness', 'temp', 'color'].includes(c))), `${d.id} capabilities 无效`);
-      if ('length' in d) need(d.length > 0 && d.length <= 100, `${d.id} 长度无效`);
+      need(['ceiling', 'pendant', 'spots', 'downlights', 'floor', 'table', 'strip', 'towelRail', 'fan', 'kettle'].includes(d.type), `${d.id} неверный тип светильника`);
+      if (d.type === 'downlights') need(Array.isArray(d.points) && d.points.length > 0 && d.points.length <= 64 && d.points.every((q) => point(q)), `${d.id}: неверные points`);
+      for (const k of ['width', 'height']) if (k in d) need(Number.isFinite(d[k]) && d[k] > 0.05 && d[k] <= 5, `${d.id}.${k}: неверно`);
+      need(d.capabilities === undefined || (Array.isArray(d.capabilities) && d.capabilities.every((c) => ['brightness', 'temp', 'color'].includes(c))), `${d.id} capabilities неверны`);
+      if ('length' in d) need(d.length > 0 && d.length <= 100, `${d.id} неверная длина`);
     } else {
-      need(['north', 'south', 'east', 'west'].includes(d.wall), `${d.id} 安装方向无效`);
-      need((d.min ?? 16) < (d.max ?? 30) && (d.min ?? 16) >= 5 && (d.max ?? 30) <= 40, `${d.id} 温度范围无效`);
+      need(['north', 'south', 'east', 'west'].includes(d.wall), `${d.id} неверная стена крепления`);
+      need((d.min ?? 16) < (d.max ?? 30) && (d.min ?? 16) >= 5 && (d.max ?? 30) <= 40, `${d.id} неверный диапазон температур`);
     }
     for (const k of ['link', 'sensor']) if (d[k] !== undefined) {
       const link = d[k];
-      need(object(link) && link.service === 'homeassistant' && typeof link.id === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(link.id), `${d.id}.${k} 需要有效的 Home Assistant 实体`);
+      need(object(link) && link.service === 'homeassistant' && typeof link.id === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(link.id), `${d.id}.${k} нужна корректная сущность Home Assistant`);
       const domains = k === 'sensor' ? ['sensor'] : group === 'acs' ? ['climate'] : ['light', 'switch', 'input_boolean', 'fan'];
-      need(domains.includes(link.id.split('.')[0]), `${d.id}.${k} 实体类型不适用`);
+      need(domains.includes(link.id.split('.')[0]), `${d.id}.${k} тип сущности не подходит`);
       bindings.add(link.id);
     }
   }
   const furniture = ['rug', 'sofa', 'armchair', 'coffeeTable', 'tv', 'sideboard', 'diningSet', 'island', 'kitchen', 'fridge', 'bed', 'nightstand', 'dresser', 'plant', 'vanity', 'bathtub', 'toilet', 'desk', 'wardrobe', 'bookshelf'];
   for (const f of plan.furniture || []) {
-    need(furniture.includes(f.type) && point(f.pos), '家具类型或位置无效');
-    for (const k of ['width', 'height']) if (k in f) need(Number.isFinite(f[k]) && f[k] > .1 && f[k] < 12, `家具 ${k} 无效`);
-    if ('rot' in f) need(Number.isFinite(f.rot), '家具旋转无效');
-    if ('size' in f) need(point(f.size) && f.size.every((x) => x > .1 && x < 15), '家具 size 无效');
-    if ('color' in f) need(color(f.color), '家具颜色无效');
-    for (const k of ['chairs', 'stools']) if (k in f) need(Number.isInteger(f[k]) && f[k] >= 0 && f[k] <= 12, `家具 ${k} 无效`);
-    if ('upper' in f) need(typeof f.upper === 'boolean', '家具 upper 无效');
+    need(furniture.includes(f.type) && point(f.pos), 'неверный тип или позиция мебели');
+    for (const k of ['width', 'height']) if (k in f) need(Number.isFinite(f[k]) && f[k] > .1 && f[k] < 12, `Мебель ${k} неверно`);
+    if ('rot' in f) need(Number.isFinite(f.rot), 'неверный поворот мебели');
+    if ('size' in f) need(point(f.size) && f.size.every((x) => x > .1 && x < 15), 'неверный size мебели');
+    if ('color' in f) need(color(f.color), 'неверный цвет мебели');
+    for (const k of ['chairs', 'stools']) if (k in f) need(Number.isInteger(f[k]) && f[k] >= 0 && f[k] <= 12, `Мебель ${k} неверно`);
+    if ('upper' in f) need(typeof f.upper === 'boolean', 'неверный upper мебели');
   }
   for (const o of plan.openings || []) {
-    need(['door', 'window', 'open'].includes(o.type || 'door') && point(o.from) && point(o.to), '门窗端点或类型无效');
-    need(o.from[0] === o.to[0] || o.from[1] === o.to[1], '门窗必须沿坐标轴对齐');
-    for (const k of ['sill', 'head']) if (k in o) need(Number.isFinite(o[k]), `门窗 ${k} 无效`);
+    need(['door', 'window', 'open'].includes(o.type || 'door') && point(o.from) && point(o.to), 'Неверные точки или тип проёма');
+    need(o.from[0] === o.to[0] || o.from[1] === o.to[1], 'Проёмы должны быть выровнены по осям');
+    for (const k of ['sill', 'head']) if (k in o) need(Number.isFinite(o[k]), `Проём ${k} неверно`);
   }
   for (const scene of plan.scenes || []) {
-    need(['sun', 'sofa', 'film', 'moon', 'door', 'bed', 'tv', 'sparkles'].includes(scene.icon || 'sun'), `${scene.id} 场景图标无效`);
+    need(['sun', 'sofa', 'film', 'moon', 'door', 'bed', 'tv', 'sparkles'].includes(scene.icon || 'sun'), `${scene.id} неверный значок сцены`);
     for (const group of ['lights', 'acs']) {
       const patches = scene[group] || {};
-      need(object(patches), `${scene.id}.${group} 必须为对象`);
+      need(object(patches), `${scene.id}.${group} должно быть объектом`);
       const deviceIds = new Set((plan[group] || []).map((d) => d.id));
       const keys = group === 'lights' ? LIGHT_KEYS : AC_KEYS;
       for (const [id, patch] of Object.entries(patches)) {
-        need(id === '*' || deviceIds.has(id), `${scene.id} 引用了未知设备 ${id}`);
-        need(object(patch) && Object.keys(patch).every((k) => keys.includes(k)), `${scene.id} 控制字段无效`);
-        for (const k of ['on', 'sleep', 'eco']) if (k in patch) need(typeof patch[k] === 'boolean', `${scene.id}.${k} 必须为布尔值`);
-        for (const k of ['brightness', 'temp', 'target']) if (k in patch) need(Number.isFinite(patch[k]), `${scene.id}.${k} 必须为数值`);
-        if ('brightness' in patch) need(patch.brightness >= 0 && patch.brightness <= 1, `${scene.id} 亮度超范围`);
-        if (patch.color != null) need(typeof patch.color === 'string' && /^#?[0-9a-f]{6}$/i.test(patch.color), `${scene.id} 颜色无效`);
-        for (const [k, choices] of [['mode', ['cool', 'heat', 'dry', 'fan', 'auto']], ['fan', FAN_ORDER], ['swing', ['off', 'swing']]]) if (k in patch) need(choices.includes(patch[k]), `${scene.id}.${k} 无效`);
+        need(id === '*' || deviceIds.has(id), `${scene.id} ссылается на неизвестное устройство ${id}`);
+        need(object(patch) && Object.keys(patch).every((k) => keys.includes(k)), `${scene.id} неверные поля управления`);
+        for (const k of ['on', 'sleep', 'eco']) if (k in patch) need(typeof patch[k] === 'boolean', `${scene.id}.${k} должно быть true/false`);
+        for (const k of ['brightness', 'temp', 'target']) if (k in patch) need(Number.isFinite(patch[k]), `${scene.id}.${k} должно быть числом`);
+        if ('brightness' in patch) need(patch.brightness >= 0 && patch.brightness <= 1, `${scene.id} яркость вне диапазона`);
+        if (patch.color != null) need(typeof patch.color === 'string' && /^#?[0-9a-f]{6}$/i.test(patch.color), `${scene.id} неверный цвет`);
+        for (const [k, choices] of [['mode', ['cool', 'heat', 'dry', 'fan', 'auto']], ['fan', FAN_ORDER], ['swing', ['off', 'swing']]]) if (k in patch) need(choices.includes(patch[k]), `${scene.id}.${k} неверно`);
       }
     }
     // This home's established rule: only the Away scene may turn ACs off. It is on by default
     // for this deployment; set `ac_rule: false` for a home that wants scenes to drive ACs,
     // and `away_scene: leave` if the leaving scene is not called "away".
-    if (acRule) need(sameJSON(scene.acs || {}, scene.id === awayScene ? { '*': { on: false } } : {}), `${scene.id} 违反空调规则：只有${awayScene === 'away' ? '离家' : ` ${awayScene} `}可关空调，其他场景不得调整空调`);
+    if (acRule) need(sameJSON(scene.acs || {}, scene.id === awayScene ? { '*': { on: false } } : {}), `${scene.id} нарушает правило кондиционеров: только ${awayScene === 'away' ? 'Ушёл' : ` ${awayScene} `} может выключать кондиционеры, остальные сцены не должны их трогать`);
   }
   return bindings;
 }
@@ -312,12 +314,12 @@ class HouseControlCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { height: 640, plan: { name: '我的家', rooms: [{ id: 'living', name: '客厅', rect: [0, 0, 5, 4] }] } };
+    return { height: 640, plan: { name: 'Мой дом', rooms: [{ id: 'living', name: 'Гостиная', rect: [0, 0, 5, 4] }] } };
   }
 
   setConfig(config) {
     if (!config || typeof config.plan !== 'object' || !Array.isArray(config.plan.rooms)) {
-      throw new Error('house-control-card: 需要 "plan"（House Control 的 plan.json 内容）');
+      throw new Error('house-control-card: нужно "plan"(содержимое plan.json из House Control)');
     }
     if (this._saving && this._config) {
       const expected = { ...this._config, plan: this._preview || this._config.plan };
@@ -374,7 +376,7 @@ class HouseControlCard extends HTMLElement {
   _render() {
     const encoded = encodePlan(this._activePlan);
     const app = new URL(this._config.app_url || APP_URL, document.baseURI);
-    if (!['http:', 'https:'].includes(app.protocol) || app.username || app.password) throw new Error('地图程序地址无效');
+    if (!['http:', 'https:'].includes(app.protocol) || app.username || app.password) throw new Error('Неверный адрес приложения плана');
     // The plan rides in the #hash, which browsers never send to the server hosting the app.
     app.searchParams.set('embed', 'ha');
     app.searchParams.set('v', `${VERSION}-${hashString(encoded)}`);
@@ -420,23 +422,23 @@ class HouseControlCard extends HTMLElement {
         @media(prefers-reduced-motion: reduce) { .tools.opening, .tools.busy .status-dot { animation: none; } button { transition: none; } }
       </style>
       <ha-card>
-        <iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="家庭 3D 户型"></iframe>
-        <div class="tools" hidden inert role="region" aria-label="地图编辑工具">
+        <iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="3D-план дома"></iframe>
+        <div class="tools" hidden inert role="region" aria-label="Редактирование плана">
           <div class="status-wrap"><span class="status-dot" aria-hidden="true"></span><span class="status" role="status" aria-live="polite"></span></div>
           <div class="tool-actions">
-            <button class="import" title="选择 House Control 导出的 plan.json">导入地图</button>
-            <button class="export" title="导出当前地图 JSON">导出</button>
-            <button class="reset" hidden>取消预览</button>
-            <button class="save primary" hidden>保存到 HA</button>
-            <button class="collapse" title="收起编辑工具" aria-label="收起编辑工具">×</button>
+            <button class="import" title="Выберите plan.json, экспортированный из House Control">Импорт плана</button>
+            <button class="export" title="Экспорт текущего плана в JSON">Экспорт</button>
+            <button class="reset" hidden>Отменить просмотр</button>
+            <button class="save primary" hidden>Сохранить в HA</button>
+            <button class="collapse" title="Свернуть инструменты" aria-label="Свернуть инструменты">×</button>
           </div>
           <input class="file" type="file" accept=".json,application/json" hidden>
         </div>
-        <dialog><h3>替换仪表盘地图？</h3>
+        <dialog><h3>Заменить план на дашборде?</h3>
           <p class="summary"></p>
-          <p>保存只替换当前卡片的地图配置，不会开灯或调整空调。保存后恢复真实设备控制，刷新页面及其他终端会读取新地图。</p>
-          <p>将自动下载原地图备份，请保留下载文件。iCloud 和 Mac App 的源文件不会被改动。</p>
-          <div class="actions"><button class="cancel-save">取消</button><button class="confirm-save primary">确认保存</button></div>
+          <p>Сохранение заменяет только план этой карточки и не трогает свет и кондиционеры. После сохранения управление устройствами вернётся; при обновлении страницы и на других устройствах загрузится новый план.</p>
+          <p>Резервная копия старого плана скачается автоматически — сохраните файл. Исходники в iCloud и Mac-приложении не меняются.</p>
+          <div class="actions"><button class="cancel-save">Отмена</button><button class="confirm-save primary">Подтвердить сохранение</button></div>
         </dialog>
       </ha-card>`;
     // sandbox without allow-same-origin: the 3D app runs in an opaque origin and can reach
@@ -486,12 +488,12 @@ class HouseControlCard extends HTMLElement {
     tools.classList.toggle('preview', Boolean(this._preview));
     tools.classList.toggle('busy', Boolean(this._saving || this._importing));
     root.querySelector('.status').textContent = this._notice || (this._preview
-      ? `只读预览 · 控制已暂停 · ${this._previewName || '未保存地图'}`
-      : '地图保存在 HA · 导入不会操作设备');
+      ? `Только просмотр · управление приостановлено ·  ${this._previewName || 'План не сохранён'}`
+      : 'План хранится в HA · импорт не трогает устройства');
     root.querySelector('.status').title = root.querySelector('.status').textContent;
     for (const name of ['reset', 'save']) root.querySelector(`.${name}`).hidden = !this._preview;
     root.querySelector('.save').disabled = this._saving || this._importing || !this._ready || !this._hass?.user?.is_admin;
-    root.querySelector('.save').title = this._hass?.user?.is_admin ? '确认后永久保存到当前仪表盘' : '需要管理员账号才能保存';
+    root.querySelector('.save').title = this._hass?.user?.is_admin ? 'После подтверждения план навсегда сохранится в этот дашборд' : 'Для сохранения нужна учётная запись администратора';
     for (const name of ['import', 'reset', 'export']) root.querySelector(`.${name}`).disabled = Boolean(this._saving || this._importing);
     this._syncEditor();
   }
@@ -499,7 +501,7 @@ class HouseControlCard extends HTMLElement {
   async _checkBindings(plan) {
     const entities = validatePlan(plan, { acRule: this._config.ac_rule !== false, awayScene: this._config.away_scene || 'away' });
     if (!entities.size) return;
-    if (!this._hass?.connection) throw new Error('HA 尚未连接，无法校验设备来源');
+    if (!this._hass?.connection) throw new Error('HA ещё не подключён, нельзя проверить источник устройств');
     // Only let a plan bind to entities from one integration. Defaults to Xiaomi Home (the
     // integration this was built against); set `platform: mqtt` etc. to match another one,
     // or `platform: "*"` to accept any integration.
@@ -508,18 +510,18 @@ class HouseControlCard extends HTMLElement {
     const indexed = new Map(registry.map((e) => [e.entity_id, e]));
     for (const id of entities) {
       const e = indexed.get(id);
-      if (!e) throw new Error(`设备不存在：${id}`);
-      if (required && required !== '*' && e.platform !== required) throw new Error(`设备 ${id} 来自 ${e.platform || '未知集成'}；此地图只允许 ${required === 'xiaomi_home' ? 'Xiaomi Home' : required}`);
-      if (e.disabled_by) throw new Error(`设备已禁用：${id}`);
+      if (!e) throw new Error(`Устройство не найдено: ${id}`);
+      if (required && required !== '*' && e.platform !== required) throw new Error(`Устройство ${id} из ${e.platform || 'неизвестная интеграция'}; этот план допускает только ${required === 'xiaomi_home' ? 'Xiaomi Home' : required}`);
+      if (e.disabled_by) throw new Error(`Устройство отключено: ${id}`);
     }
   }
 
   async _importFile(file) {
     if (this._saving || this._importing) return;
     const generation = this._importGeneration = (this._importGeneration || 0) + 1;
-    this._importing = true; this._notice = '正在校验地图与 Xiaomi Home 绑定…'; this._updateTools();
+    this._importing = true; this._notice = 'Проверка плана и привязок устройств…'; this._updateTools();
     try {
-      if (file.size > MAX_PLAN_BYTES) throw new Error('地图文件不能超过 1 MB');
+      if (file.size > MAX_PLAN_BYTES) throw new Error('Файл плана не должен превышать 1 МБ');
       const plan = JSON.parse((await file.text()).replace(/^\uFEFF/, ''));
       await this._checkBindings(plan);
       if (generation !== this._importGeneration || !this.isConnected) return;
@@ -527,7 +529,7 @@ class HouseControlCard extends HTMLElement {
       this._notice = '';
       this._loadPlan(this._preview);
     } catch (err) {
-      if (generation === this._importGeneration) this._notice = `导入失败：${err.message || err}`;
+      if (generation === this._importGeneration) this._notice = `Ошибка импорта: ${err.message || err}`;
     } finally {
       if (generation === this._importGeneration) this._importing = false;
       this._updateTools();
@@ -537,7 +539,7 @@ class HouseControlCard extends HTMLElement {
   _confirmSave() {
     if (!this._preview || this._saving || this._importing || !this._ready || !this.isConnected || !this._hass?.user?.is_admin) return;
     const p = this._preview;
-    this.shadowRoot.querySelector('.summary').textContent = `${p.name || '未命名地图'}：${p.rooms.length} 个房间、${(p.lights || []).length} 个灯光模型、${(p.acs || []).length} 个空调/新风模型。当前设备控制处于暂停状态。`;
+    this.shadowRoot.querySelector('.summary').textContent = `${p.name || 'План без имени'}: ${p.rooms.length} комн., ${(p.lights || []).length} ламп, ${(p.acs || []).length} кондиционеров. Управление устройствами приостановлено.`;
     this.shadowRoot.querySelector('dialog').showModal();
   }
 
@@ -545,14 +547,14 @@ class HouseControlCard extends HTMLElement {
     // null means the default /lovelace dashboard; named storage dashboards use their url_path.
     if (this._config.dashboard_path !== undefined) return this._config.dashboard_path || null;
     const path = location.pathname.split('/').filter(Boolean)[0];
-    if (!path) throw new Error('无法定位仪表盘，请配置 dashboard_path');
+    if (!path) throw new Error('Не найден дашборд, укажите dashboard_path');
     return path === 'lovelace' ? null : path;
   }
 
   _targetCard(dashboard, basePlan) {
     const matches = findCards(dashboard).filter(({ card }) => sameJSON(card.plan, basePlan));
-    if (matches.length !== 1) throw new Error('原地图已变化或存在多个相同卡片，请刷新页面后重新导入；未覆盖任何配置');
-    if (!sameJSON(matches[0].card, this._config)) throw new Error('卡片配置已被修改，请刷新页面后重新导入；未覆盖任何配置');
+    if (matches.length !== 1) throw new Error('Исходный план изменился или карточек несколько; обновите страницу и импортируйте снова. Ничего не перезаписано');
+    if (!sameJSON(matches[0].card, this._config)) throw new Error('Конфиг карточки изменён; обновите страницу и импортируйте снова. Ничего не перезаписано');
     return matches[0];
   }
 
@@ -562,7 +564,7 @@ class HouseControlCard extends HTMLElement {
     const basePlan = structuredClone(this._config.plan);
     const connection = this._hass.connection;
     this._saving = true; this._saveConflict = false;
-    this._notice = '正在校验并保存到 HA…'; this._updateTools();
+    this._notice = 'Проверка и сохранение в HA…'; this._updateTools();
     let wrote = false;
     try {
       await this._checkBindings(preview);
@@ -571,7 +573,7 @@ class HouseControlCard extends HTMLElement {
       const before = await read();
       const target = this._targetCard(before, basePlan);
       const latest = await read();
-      if (!sameJSON(before, latest) || this._saveConflict || !this.isConnected) throw new Error('仪表盘正在被其他页面修改或已离开，请刷新后重试；未保存');
+      if (!sameJSON(before, latest) || this._saveConflict || !this.isConnected) throw new Error('Дашборд меняется на другой странице или закрыт; обновите и повторите. Не сохранено');
       // Backup is a user-initiated download, not a public static-file upload.
       downloadJSON(target.card.plan, `plan-before-import-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
       const after = structuredClone(latest);
@@ -579,15 +581,15 @@ class HouseControlCard extends HTMLElement {
       await connection.sendMessagePromise({ type: 'lovelace/config/save', url_path, config: after });
       wrote = true;
       const saved = await read();
-      if (!sameJSON(saved, after) || this._saveConflict || !this.isConnected) throw new Error('HA 已接受保存，但回读不一致或页面配置发生变化；请刷新检查，不会自动覆盖其他人的修改');
+      if (!sameJSON(saved, after) || this._saveConflict || !this.isConnected) throw new Error('HA принял сохранение, но проверка не совпала или конфиг страницы изменился; обновите и проверьте — чужие правки не перезаписываются');
       this._config = { ...this._config, plan: preview };
       this._preview = null; this._previewName = '';
-      this._notice = '已保存到 HA · 原地图备份已发起下载';
+      this._notice = 'Сохранено в HA · копия старого плана скачивается';
       this._loadPlan(preview);
       // The live card now agrees with the dashboard; other clients receive HA's config event.
       this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: structuredClone(this._config) }, bubbles: true, composed: true }));
     } catch (err) {
-      this._notice = `${wrote ? '保存结果待确认' : '保存失败'}：${err.message || err}`;
+      this._notice = `${wrote ? 'Результат сохранения не подтверждён' : 'Не удалось сохранить'}: ${err.message || err}`;
     } finally {
       this._saving = false; this._updateTools();
     }
@@ -601,7 +603,7 @@ class HouseControlCard extends HTMLElement {
     if (!this._frame || e.source !== this._frame.contentWindow || !e.data?.__house) return;
     const msg = e.data.msg || {};
     if (msg.type === 'ready') {
-      if (msg.error) { this._ready = false; this._notice = `地图加载失败：${msg.error}`; this._updateTools(); return; }
+      if (msg.error) { this._ready = false; this._notice = `Не удалось загрузить план: ${msg.error}`; this._updateTools(); return; }
       this._ready = true;
       this._updateTools();
       this._send('shown');
@@ -611,7 +613,7 @@ class HouseControlCard extends HTMLElement {
       const reply = (result) => { if (sender === this._frame?.contentWindow) sender.postMessage({ __houseHost: 1, fn: 'reply', args: [msg.callId, result] }, '*'); };
       this._command(msg).then(
         () => reply({}),
-        (err) => reply({ error: String(err?.message || err || '调用失败') }),
+        (err) => reply({ error: String(err?.message || err || 'Ошибка вызова') }),
       );
     } else if (msg.type === 'toggleEdit') {
       this._setToolsOpen(!this._toolsOpen);
@@ -621,7 +623,7 @@ class HouseControlCard extends HTMLElement {
   }
 
   async _command({ kind, id, patch, state }) {
-    if (this._preview || this._saving || this._importing) throw new Error('地图预览/导入期间设备控制已暂停；保存或取消预览后可恢复');
+    if (this._preview || this._saving || this._importing) throw new Error('Во время просмотра/импорта плана управление устройствами приостановлено; сохраните или отмените просмотр');
     const activePlan = this._activePlan;
     // Only devices of this card's plan, only their own linked entity, only known fields.
     if (kind !== 'light' && kind !== 'ac') return;
@@ -639,7 +641,7 @@ class HouseControlCard extends HTMLElement {
     if ('brightness' in clean && !(typeof clean.brightness === 'number' && clean.brightness >= 0 && clean.brightness <= 1)) delete clean.brightness;
     const attributes = this._hass.states[entity]?.attributes || {};
     for (const c of serviceCalls(entity, clean, pick(state, ['mode']), attributes)) {
-      if (this._preview || this._saving || this._importing || activePlan !== this._activePlan || !this.isConnected) throw new Error('地图已切换，取消剩余控制指令');
+      if (this._preview || this._saving || this._importing || activePlan !== this._activePlan || !this.isConnected) throw new Error('План переключился, оставшиеся команды отменены');
       await this._hass.callService(c.domain, c.service, c.data);
     }
   }
@@ -687,8 +689,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === 'house-control-card')) {
   window.customCards.push({
     type: 'house-control-card',
-    name: 'House Control 3D 户型',
-    description: '可交互的 3D 户型图：点灯开关、调空调、一键场景（House Control）',
+    name: 'House Control — 3D-план',
+    description: 'Интерактивный 3D-план: свет, кондиционеры и сцены в один тап (House Control)',
     preview: false,
   });
 }

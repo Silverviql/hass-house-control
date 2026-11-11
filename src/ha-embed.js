@@ -41,8 +41,8 @@
     editButton.setAttribute('aria-expanded', String(Boolean(editorState.open)));
     editButton.classList.toggle('active', Boolean(editorState.open));
     editButton.classList.toggle('has-preview', Boolean(editorState.preview));
-    var label = editorState.open ? '收起地图编辑工具' : '展开地图编辑工具';
-    if (editorState.preview) label += '（只读预览，设备控制已暂停）';
+    var label = editorState.open ? 'Свернуть редактирование плана' : 'Открыть редактирование плана';
+    if (editorState.preview) label += '(только просмотр, управление приостановлено)';
     editButton.setAttribute('aria-label', label);
     editButton.title = label;
     if (editorState.restoreFocus) editButton.focus({ preventScroll: true });

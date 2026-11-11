@@ -28,9 +28,6 @@ html.embed .ha-edit-trigger:active { transform: scale(.9); }
 html.embed .ha-edit-trigger.active { background: #303744; color: #bcd7ff; box-shadow: 0 0 0 3px #7faaff18; }
 html.embed .ha-edit-trigger.has-preview::after { content: ''; position: absolute; right: -1px; top: -1px; width: 6px; height: 6px; border-radius: 50%; background: #f1bf6b; box-shadow: 0 0 8px #f1bf6b66; }
 html.embed .ha-edit-trigger:focus-visible { outline: 2px solid #8bbcff; outline-offset: 3px; }
-/* Web-only: omit the scene shortcuts and reclaim their row for device controls. */
-html.embed .panel > .scenes { display: none; }
-html.embed .panel > .rooms { margin-top: 0; }
 
 /* Wide card (a dashboard column or more): the model on the left, the controls on the right. */
 @media (min-width: 760px) {
