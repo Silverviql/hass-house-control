@@ -249,6 +249,7 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
     need(!('tuya' in d), `${d.id} привязки к другим платформам не поддерживаются`);
     if (group === 'lights') {
       need(['ceiling', 'pendant', 'spots', 'downlights', 'floor', 'table', 'strip', 'towelRail', 'fan', 'kettle', 'blind', 'vacuum'].includes(d.type), `${d.id} неверный тип светильника`);
+      if (d.power !== undefined) need(typeof d.power === 'string' && d.power !== d.id && (plan.lights || []).some((l) => l.id === d.power && l.power === undefined), `${d.id}.power: неизвестный выключатель`);
       if (d.type === 'downlights') need(Array.isArray(d.points) && d.points.length > 0 && d.points.length <= 64 && d.points.every((q) => point(q)), `${d.id}: неверные points`);
       for (const k of ['width', 'height']) if (k in d) need(Number.isFinite(d[k]) && d[k] > 0.05 && d[k] <= 5, `${d.id}.${k}: неверно`);
       need(d.capabilities === undefined || (Array.isArray(d.capabilities) && d.capabilities.every((c) => ['brightness', 'temp', 'color'].includes(c))), `${d.id} capabilities неверны`);

@@ -31,6 +31,8 @@ for (const id of ids) {
   else if (dom === 'light') states[id] = { entity_id: id, state: '${lightsState}', attributes: { brightness: 200, color_temp_kelvin: 3000, supported_color_modes: ['color_temp'], color_mode: 'color_temp' } };
   else states[id] = { entity_id: id, state: '${lightsState}', attributes: {} };
 }
+for (const id of ${JSON.stringify((process.env.OFFIDS || '').split(',').filter(Boolean))}) if (states[id]) states[id].state = 'off';
+for (const id of ${JSON.stringify((process.env.ONIDS || '').split(',').filter(Boolean))}) if (states[id]) states[id].state = 'on';
 window.__calls = [];
 const hass = {
   states,
@@ -72,12 +74,14 @@ if (process.env.CLICK) {
     await page.waitForTimeout(3000);
   }
 }
+if (process.env.AFTER) await page.waitForTimeout(Number(process.env.AFTER));
 if (process.env.WHEEL) {
   const [x, y, delta, steps = 8] = process.env.WHEEL.split(',').map(Number);
   await page.mouse.move(x, y);
   for (let i = 0; i < steps; i++) { await page.mouse.wheel(0, delta); await page.waitForTimeout(120); }
   await page.waitForTimeout(2500);
 }
+if (process.env.FEVAL) console.log('feval:', JSON.stringify(await page.frames().find((f) => f.url().includes('embed.html')).evaluate(process.env.FEVAL)));
 if (process.env.EVAL) console.log('eval:', JSON.stringify(await page.evaluate(process.env.EVAL)));
 await page.screenshot({ path: out });
 const info = await page.evaluate(() => ({ ready: window.__card?._ready, notice: window.__card?._notice, calls: window.__calls }));
