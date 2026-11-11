@@ -1,13 +1,17 @@
 // Preview stand: renders the card with a fake `hass` in headless Chromium, takes a screenshot
 // and prints the Home Assistant service calls the card made.
-// Setup (once, anywhere outside this repo): npm i playwright && npx playwright install chromium-headless-shell
-// Env: CLICK="text|text" clicks elements in the 3D app, WHEEL="x,y,delta,steps" zooms, WAIT=ms.
+// Setup (once, in the repo root; node_modules is git-ignored):
+//   npm i --no-save playwright && npx playwright install chromium-headless-shell
+// Usage: node tools/preview.mjs <dir with the built card> <plan.json> <out.png> [on|off] [width] [height]
+// Env: CLICK="text|text" clicks a text in the 3D app, WHEEL="x,y,delta,steps" zooms, WAIT=ms before acting,
+//      ONIDS / OFFIDS="entity,entity" override single states, FEVAL="js" evaluates in the 3D app's frame.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const [dir, planPath, out, lightsState = 'on', width = '1400', height = '900'] = process.argv.slice(2);
+const [dirArg, planPath, out, lightsState = 'on', width = '1400', height = '900'] = process.argv.slice(2);
+const dir = path.resolve(dirArg);
 const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
 
 const harness = `<!doctype html><html><head><meta charset="utf-8">
