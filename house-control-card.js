@@ -304,7 +304,37 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
     // and `away_scene: leave` if the leaving scene is not called "away".
     if (acRule) need(sameJSON(scene.acs || {}, scene.id === awayScene ? { '*': { on: false } } : {}), `${scene.id} нарушает правило кондиционеров: только ${awayScene === 'away' ? 'Ушёл' : ` ${awayScene} `} может выключать кондиционеры, остальные сцены не должны их трогать`);
   }
+  // Room climate and the weather outside: plain entity ids, checked against the registry like every other binding.
+  const entity = (id, domains) => typeof id === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(id) && domains.includes(id.split('.')[0]);
+  need(plan.sensors === undefined || (Array.isArray(plan.sensors) && plan.sensors.length <= 100), 'sensors должен быть массивом');
+  for (const item of plan.sensors || []) {
+    need(object(item) && rooms.has(item.room), 'sensors: неизвестная комната');
+    for (const k of ['temperature', 'humidity']) if (item[k] !== undefined) {
+      need(entity(item[k], ['sensor']), `sensors.${item.room}.${k}: нужен sensor.*`);
+      bindings.add(item[k]);
+    }
+  }
+  if (plan.outdoor !== undefined) {
+    need(object(plan.outdoor), 'outdoor должен быть объектом');
+    for (const [k, domains] of [['weather', ['weather']], ['temperature', ['sensor']], ['humidity', ['sensor']], ['pressure', ['sensor']]]) {
+      if (plan.outdoor[k] === undefined) continue;
+      need(entity(plan.outdoor[k], domains), `outdoor.${k}: нужен ${domains[0]}.*`);
+      bindings.add(plan.outdoor[k]);
+    }
+  }
   return bindings;
+}
+
+// A reading as a number, or null when the entity has nothing to say.
+const reading = (s) => (offline(s) ? null : num(s.state));
+// Atmospheric pressure in hPa, whatever the entity reports it in.
+function pressureHpa(value, unit) {
+  if (value === null) return null;
+  if (unit === 'mmHg') return value / 0.750062;
+  if (unit === 'inHg') return value * 33.8639;
+  if (unit === 'kPa') return value * 10;
+  if (unit === 'Pa') return value / 100;
+  return value;
 }
 function downloadJSON(value, filename) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
@@ -365,6 +395,12 @@ class HouseControlCard extends HTMLElement {
       this._watched.add(haLink(a));
       if (a.sensor?.service === 'homeassistant' && a.sensor.id) this._watched.add(a.sensor.id);
     }
+    // Thermometers of appliances, the rooms' climate sensors and what is known about outside.
+    this._climate = [];
+    for (const l of plan.lights || []) if (l.sensor?.service === 'homeassistant' && l.sensor.id) this._climate.push(l.sensor.id);
+    for (const item of plan.sensors || []) for (const k of ['temperature', 'humidity']) if (item[k]) this._climate.push(item[k]);
+    for (const k of ['weather', 'temperature', 'humidity', 'pressure']) if (plan.outdoor?.[k]) this._climate.push(plan.outdoor[k]);
+    for (const id of this._climate) this._watched.add(id);
     this._render();
   }
 
@@ -701,7 +737,43 @@ class HouseControlCard extends HTMLElement {
       if (Object.keys(ac).length) acs[id] = ac;
     }
     for (const id of this._watched) this._seen.set(id, states[id]);
-    this._send('applyRemote', { lights, acs, features });
+    this._send('applyRemote', { lights, acs, features, climate: this._readClimate(states) });
+  }
+
+  _readClimate(states) {
+    const plan = this._activePlan || {};
+    const rooms = {};
+    for (const item of plan.sensors || []) {
+      const temp = item.temperature ? states[item.temperature] : null;
+      const t = temp && !offline(temp) ? sensorTemperature(temp) : null;
+      const humidity = item.humidity ? reading(states[item.humidity]) : null;
+      if (t !== null || humidity !== null) rooms[item.room] = { temp: t, humidity };
+    }
+    const devices = {};
+    for (const l of plan.lights || []) {
+      const s = l.sensor?.service === 'homeassistant' ? states[l.sensor.id] : null;
+      const t = s && !offline(s) ? sensorTemperature(s) : null;
+      if (t !== null) devices[l.id] = { temp: t };
+    }
+    const outdoor = {};
+    const o = plan.outdoor || {};
+    const w = o.weather ? states[o.weather] : null;
+    if (w && !offline(w)) {
+      const a = w.attributes || {};
+      outdoor.condition = w.state;
+      outdoor.temp = num(a.temperature) !== null && a.temperature_unit === '°F' ? Math.round(((num(a.temperature) - 32) * 5 / 9) * 10) / 10 : num(a.temperature);
+      outdoor.humidity = num(a.humidity);
+      outdoor.pressure = pressureHpa(num(a.pressure), a.pressure_unit);
+    }
+    // A sensor of one's own beats the forecast.
+    const ownTemp = o.temperature && !offline(states[o.temperature]) ? sensorTemperature(states[o.temperature]) : null;
+    if (ownTemp !== null) outdoor.temp = ownTemp;
+    const ownHumidity = o.humidity ? reading(states[o.humidity]) : null;
+    if (ownHumidity !== null) outdoor.humidity = ownHumidity;
+    const p = o.pressure ? states[o.pressure] : null;
+    const ownPressure = p ? pressureHpa(reading(p), p.attributes?.unit_of_measurement) : null;
+    if (ownPressure !== null) outdoor.pressure = ownPressure;
+    return { rooms, devices, outdoor };
   }
 }
 

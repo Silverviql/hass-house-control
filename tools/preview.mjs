@@ -20,10 +20,16 @@ for (const d of [...(plan.lights||[]), ...(plan.acs||[]), ...(plan.devices||[])]
   if (d.link?.id) ids.add(d.link.id);
   if (d.sensor?.id) ids.add(d.sensor.id);
 }
+for (const item of plan.sensors || []) for (const k of ['temperature', 'humidity']) if (item[k]) ids.add(item[k]);
+for (const k of ['weather', 'temperature', 'humidity', 'pressure']) if (plan.outdoor?.[k]) ids.add(plan.outdoor[k]);
 const states = {};
 for (const id of ids) {
   const dom = id.split('.')[0];
-  if (dom === 'sensor') states[id] = { entity_id: id, state: '23.4', attributes: { device_class: 'temperature', unit_of_measurement: '°C' } };
+  if (dom === 'weather') states[id] = { entity_id: id, state: 'cloudy', attributes: { temperature: 2.6, humidity: 81, pressure: 1003, pressure_unit: 'hPa', temperature_unit: '°C' } };
+  else if (id.endsWith('_humidity')) states[id] = { entity_id: id, state: id.includes('703732') ? '74' : '43.6', attributes: { device_class: 'humidity', unit_of_measurement: '%' } };
+  else if (id.endsWith('_pressure')) states[id] = { entity_id: id, state: '1002.4', attributes: { device_class: 'atmospheric_pressure', unit_of_measurement: 'hPa' } };
+  else if (id.includes('tkp1017s') && dom === 'sensor') states[id] = { entity_id: id, state: '87', attributes: { unit_of_measurement: '°C' } };
+  else if (dom === 'sensor') states[id] = { entity_id: id, state: '23.4', attributes: { device_class: 'temperature', unit_of_measurement: '°C' } };
   else if (dom === 'cover') states[id] = { entity_id: id, state: 'open', attributes: { current_position: 55 } };
   else if (dom === 'vacuum') states[id] = { entity_id: id, state: 'cleaning', attributes: {} };
   else if (dom === 'climate' && id.includes('0xa4c13885')) states[id] = { entity_id: id, state: 'heat', attributes: { temperature: 27, current_temperature: 24.5, hvac_modes: ['off', 'heat'], hvac_action: 'heating', min_temp: 5, max_temp: 35 } };
