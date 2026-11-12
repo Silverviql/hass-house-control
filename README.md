@@ -49,6 +49,9 @@ entity (and optionally sensors of your own). The card shows them as chips over t
 headings and in a line under the home's name: outside temperature, humidity, sky and pressure in mmHg. Rooms above
 65 % or below 30 % humidity are highlighted. A device's `sensor` (the water in a kettle) is shown on its tile.
 
+**Day and night.** With `"sun": "sun.sun"` in `outdoor`, the model is lit by daylight while the sun is up and
+by the moon at night.
+
 **Rooms of several rectangles.** A rectangle with `"part": "<room id>"` belongs to that room: one name, one tab.
 
 **Interface.** The card and the 3D app are in Russian, and the scene buttons are shown (upstream hides them).
@@ -172,6 +175,8 @@ the fork's changes were checked without touching a real home.
 npm i --no-save playwright && npx playwright install chromium-headless-shell   # once, in the repo root
 node tools/preview.mjs . my-plan.json shot.png on                    # on|off: state of lights and switches
 CLICK="Кухня" node tools/preview.mjs . my-plan.json shot.png         # click a text in the 3D app first
+TAP="Люстра" node tools/preview.mjs . my-plan.json shot.png off 900 560 # find a device by its tooltip and tap it
+TOUCH=1 SUN=-10 node tools/preview.mjs . my-plan.json shot.png      # a phone's touch screen, at night
 WHEEL="640,330,-240,8" node tools/preview.mjs . my-plan.json shot.png # zoom in at x,y
 ```
 

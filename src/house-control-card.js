@@ -328,7 +328,7 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
   }
   if (plan.outdoor !== undefined) {
     need(object(plan.outdoor), 'outdoor должен быть объектом');
-    for (const [k, domains] of [['weather', ['weather']], ['temperature', ['sensor']], ['humidity', ['sensor']], ['pressure', ['sensor']]]) {
+    for (const [k, domains] of [['weather', ['weather']], ['sun', ['sun']], ['temperature', ['sensor']], ['humidity', ['sensor']], ['pressure', ['sensor']]]) {
       if (plan.outdoor[k] === undefined) continue;
       need(entity(plan.outdoor[k], domains), `outdoor.${k}: нужен ${domains[0]}.*`);
       bindings.add(plan.outdoor[k]);
@@ -411,7 +411,7 @@ class HouseControlCard extends HTMLElement {
     this._climate = [];
     for (const l of plan.lights || []) if (l.sensor?.service === 'homeassistant' && l.sensor.id) this._climate.push(l.sensor.id);
     for (const item of plan.sensors || []) for (const k of ['temperature', 'humidity']) if (item[k]) this._climate.push(item[k]);
-    for (const k of ['weather', 'temperature', 'humidity', 'pressure']) if (plan.outdoor?.[k]) this._climate.push(plan.outdoor[k]);
+    for (const k of ['weather', 'sun', 'temperature', 'humidity', 'pressure']) if (plan.outdoor?.[k]) this._climate.push(plan.outdoor[k]);
     for (const id of this._climate) this._watched.add(id);
     this._render();
   }
@@ -803,6 +803,10 @@ class HouseControlCard extends HTMLElement {
       outdoor.humidity = num(a.humidity);
       outdoor.pressure = pressureHpa(num(a.pressure), a.pressure_unit);
     }
+    // Day or night in the 3D model follows the sun (Home Assistant's sun.sun).
+    const sun = o.sun ? states[o.sun] : null;
+    const elevation = sun && !offline(sun) ? num(sun.attributes?.elevation) : null;
+    if (elevation !== null) outdoor.sunElevation = elevation;
     // A sensor of one's own beats the forecast.
     const ownTemp = o.temperature && !offline(states[o.temperature]) ? sensorTemperature(states[o.temperature]) : null;
     if (ownTemp !== null) outdoor.temp = ownTemp;

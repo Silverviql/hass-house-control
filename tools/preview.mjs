@@ -6,6 +6,9 @@
 // Env: CLICK="text|text" clicks a text in the 3D app, WHEEL="x,y,delta,steps" zooms, WAIT=ms before acting,
 //      ONIDS / OFFIDS="entity,entity" override single states, FEVAL="js" evaluates in the 3D app's frame,
 //      ACT="js" runs in that frame after CLICK, RELOAD=1 then reloads the page (to test what is remembered).
+//      SUN=elevation of sun.sun in degrees (default 25: day; -10 for night).
+//      TAP="name" finds that device in the 3D view by its hover tooltip and taps it.
+//      TOUCH=1 emulates a phone's touch screen (no hover).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,11 +29,12 @@ for (const d of [...(plan.lights||[]), ...(plan.acs||[]), ...(plan.devices||[])]
   if (d.sensor?.id) ids.add(d.sensor.id);
 }
 for (const item of plan.sensors || []) for (const k of ['temperature', 'humidity']) if (item[k]) ids.add(item[k]);
-for (const k of ['weather', 'temperature', 'humidity', 'pressure']) if (plan.outdoor?.[k]) ids.add(plan.outdoor[k]);
+for (const k of ['weather', 'sun', 'temperature', 'humidity', 'pressure']) if (plan.outdoor?.[k]) ids.add(plan.outdoor[k]);
 const states = {};
 for (const id of ids) {
   const dom = id.split('.')[0];
-  if (dom === 'weather') states[id] = { entity_id: id, state: 'cloudy', attributes: { temperature: 2.6, humidity: 81, pressure: 1003, pressure_unit: 'hPa', temperature_unit: '°C' } };
+  if (dom === 'sun') states[id] = { entity_id: id, state: 'above_horizon', attributes: { elevation: ${Number(process.env.SUN ?? 25)}, azimuth: 180 } };
+  else if (dom === 'weather') states[id] = { entity_id: id, state: 'cloudy', attributes: { temperature: 2.6, humidity: 81, pressure: 1003, pressure_unit: 'hPa', temperature_unit: '°C' } };
   else if (id.endsWith('_humidity')) states[id] = { entity_id: id, state: id.includes('703732') ? '74' : '43.6', attributes: { device_class: 'humidity', unit_of_measurement: '%' } };
   else if (id.endsWith('_pressure')) states[id] = { entity_id: id, state: '1002.4', attributes: { device_class: 'atmospheric_pressure', unit_of_measurement: 'hPa' } };
   else if (id.includes('tkp1017s') && dom === 'sensor') states[id] = { entity_id: id, state: '87', attributes: { unit_of_measurement: '°C' } };
@@ -72,7 +76,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const page = await browser.newPage({ viewport: { width: +width, height: +height } });
+const page = await browser.newPage({ viewport: { width: +width, height: +height }, ...(process.env.TOUCH ? { hasTouch: true, isMobile: true } : {}) });
 const logs = [];
 page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) logs.push(`[${m.type()}] ${m.text()}`.slice(0, 300)); });
 page.on('pageerror', (e) => logs.push(`[pageerror] ${String(e).slice(0, 300)}`));
@@ -84,6 +88,24 @@ if (process.env.CLICK) {
     await frame.getByText(text, { exact: true }).first().click();
     await page.waitForTimeout(3000);
   }
+}
+if (process.env.TAP) {
+  // Finds the device in the 3D view by its hover tooltip, then taps it there.
+  const frame = page.frames().find((f) => f.url().includes('embed.html'));
+  const tip = () => frame.evaluate(() => document.querySelector('.tooltip.show')?.firstChild?.nextSibling?.textContent ?? document.querySelector('.tooltip.show')?.textContent ?? '');
+  let spot = null;
+  const seen = {};
+  const step = Number(process.env.TAP_STEP || 16);
+  for (let y = 80; y < +height - 40 && !spot; y += step) {
+    for (let x = 20; x < +width * 0.62 && !spot; x += step) {
+      await page.mouse.move(x, y);
+      const name = (await tip()).trim();
+      if (name) seen[name] = (seen[name] || 0) + 1;
+      if (name === process.env.TAP) spot = [x, y];
+    }
+  }
+  console.log('tap:', JSON.stringify({ target: process.env.TAP, at: spot, hovered: seen }));
+  if (spot) { await page.mouse.click(...spot); await page.waitForTimeout(1500); }
 }
 if (process.env.ACT) {
   await page.frames().find((f) => f.url().includes('embed.html')).evaluate(process.env.ACT);
