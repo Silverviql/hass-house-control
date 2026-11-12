@@ -9,6 +9,7 @@
 //      SUN=elevation of sun.sun in degrees (default 25: day; -10 for night).
 //      TAP="name" finds that device in the 3D view by its hover tooltip and taps it.
 //      TOUCH=1 emulates a phone's touch screen (no hover).
+//      PACT="js" runs in the dashboard page first (window.__card is the card), then waits PWAIT ms.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -53,11 +54,21 @@ const hass = {
   states,
   user: { is_admin: true },
   language: 'ru',
-  connection: { sendMessagePromise: async (m) => m.type === 'config/entity_registry/list' ? [...ids].map((entity_id) => ({ entity_id, platform: 'mqtt', disabled_by: null })) : {} },
+  connection: { sendMessagePromise: async (m) => {
+    window.__ws = (window.__ws || []).concat([m.type]);
+    if (m.type === 'config/entity_registry/list') return [...ids].map((entity_id) => ({ entity_id, platform: 'mqtt', disabled_by: null, area_id: 'a1' }));
+    if (m.type === 'config/area_registry/list') return [{ area_id: 'a1', name: 'Комната' }];
+    if (m.type === 'config/device_registry/list') return [];
+    if (m.type === 'lovelace/config') return window.__dashboard;
+    if (m.type === 'lovelace/config/save') { window.__dashboard = m.config; window.__saved = (window.__saved || 0) + 1; return null; }
+    return {};
+  } },
   callService: async (domain, service, data) => { window.__calls.push({ domain, service, data }); },
 };
 const el = document.createElement('house-control-card');
-el.setConfig({ type: 'custom:house-control-card', platform: '*', plan, app_url: '/embed.html' });
+const cardConfig = { type: 'custom:house-control-card', platform: '*', plan, app_url: '/embed.html', dashboard_path: 'test' };
+window.__dashboard = { views: [{ type: 'panel', cards: [cardConfig] }] };
+el.setConfig(cardConfig);
 el.hass = hass;
 document.body.append(el);
 window.__card = el;
@@ -77,13 +88,20 @@ const port = server.address().port;
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: +width, height: +height }, ...(process.env.TOUCH ? { hasTouch: true, isMobile: true } : {}) });
+// The 3D app's frame, or with FRAME=editor the plan editor's (open it first with PACT).
+const appFrame = () => page.frames().find((f) => (process.env.FRAME === 'editor' ? f.url().includes('mode=editor') : f.url().includes('embed.html') && !f.url().includes('mode=editor')));
 const logs = [];
 page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) logs.push(`[${m.type()}] ${m.text()}`.slice(0, 300)); });
 page.on('pageerror', (e) => logs.push(`[pageerror] ${String(e).slice(0, 300)}`));
 await page.goto(`http://127.0.0.1:${port}/`);
 await page.waitForTimeout(Number(process.env.WAIT || 9000));
+if (process.env.PACT) {
+  // Runs in the dashboard page (not the 3D frame): window.__card is the card element.
+  await page.evaluate(process.env.PACT);
+  await page.waitForTimeout(Number(process.env.PWAIT || 7000));
+}
 if (process.env.CLICK) {
-  const frame = page.frames().find((f) => f.url().includes('embed.html'));
+  const frame = appFrame();
   for (const text of process.env.CLICK.split('|')) {
     await frame.getByText(text, { exact: true }).first().click();
     await page.waitForTimeout(3000);
@@ -91,7 +109,7 @@ if (process.env.CLICK) {
 }
 if (process.env.TAP) {
   // Finds the device in the 3D view by its hover tooltip, then taps it there.
-  const frame = page.frames().find((f) => f.url().includes('embed.html'));
+  const frame = appFrame();
   const tip = () => frame.evaluate(() => document.querySelector('.tooltip.show')?.firstChild?.nextSibling?.textContent ?? document.querySelector('.tooltip.show')?.textContent ?? '');
   let spot = null;
   const seen = {};
@@ -108,7 +126,7 @@ if (process.env.TAP) {
   if (spot) { await page.mouse.click(...spot); await page.waitForTimeout(1500); }
 }
 if (process.env.ACT) {
-  await page.frames().find((f) => f.url().includes('embed.html')).evaluate(process.env.ACT);
+  await appFrame().evaluate(process.env.ACT);
   await page.waitForTimeout(1500);
 }
 if (process.env.RELOAD) {
@@ -122,7 +140,7 @@ if (process.env.WHEEL) {
   for (let i = 0; i < steps; i++) { await page.mouse.wheel(0, delta); await page.waitForTimeout(120); }
   await page.waitForTimeout(2500);
 }
-if (process.env.FEVAL) console.log('feval:', JSON.stringify(await page.frames().find((f) => f.url().includes('embed.html')).evaluate(process.env.FEVAL)));
+if (process.env.FEVAL) console.log('feval:', JSON.stringify(await appFrame().evaluate(process.env.FEVAL)));
 if (process.env.EVAL) console.log('eval:', JSON.stringify(await page.evaluate(process.env.EVAL)));
 await page.screenshot({ path: out });
 const info = await page.evaluate(() => ({ ready: window.__card?._ready, notice: window.__card?._notice, calls: window.__calls }));

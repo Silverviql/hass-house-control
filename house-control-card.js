@@ -464,6 +464,7 @@ class HouseControlCard extends HTMLElement {
         :host { display: block; height: 100%; }
         ha-card { display: block; width: 100%; overflow: hidden; height: 100%; min-height: ${this._height()}px; background: #0a0e1a; position: relative; }
         iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #0a0e1a; }
+        iframe.editor { z-index: 9; }
         .tools { position: absolute; z-index: 8; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 18px; border: 1px solid #ffffff15; border-radius: 28px; background: rgba(15, 16, 20, .94); color: #f1f3f8; box-shadow: 0 12px 42px #0007, inset 0 1px 0 #ffffff05; backdrop-filter: blur(24px) saturate(125%); -webkit-backdrop-filter: blur(24px) saturate(125%); font: 12px/1.4 system-ui, sans-serif; }
         .tools.opening { animation: island-in .38s cubic-bezier(.16, 1, .3, 1); }
         @keyframes island-in { from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(.88, .8); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
@@ -492,9 +493,11 @@ class HouseControlCard extends HTMLElement {
       </style>
       <ha-card>
         <iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="3D-план дома"></iframe>
+        <iframe class="editor" sandbox="allow-scripts" referrerpolicy="no-referrer" title="Редактор плана" hidden></iframe>
         <div class="tools" hidden inert role="region" aria-label="Редактирование плана">
           <div class="status-wrap"><span class="status-dot" aria-hidden="true"></span><span class="status" role="status" aria-live="polite"></span></div>
           <div class="tool-actions">
+            <button class="edit" title="Открыть редактор: комнаты, мебель, светильники">Редактор</button>
             <button class="import" title="Выберите plan.json, экспортированный из House Control">Импорт плана</button>
             <button class="export" title="Экспорт текущего плана в JSON">Экспорт</button>
             <button class="reset" hidden>Отменить просмотр</button>
@@ -514,11 +517,14 @@ class HouseControlCard extends HTMLElement {
     // nothing of Home Assistant; all it can do is post commands, which _command vets.
     this._frame = this.shadowRoot.querySelector('iframe');
     this._frame.src = src;
+    this._editor = this.shadowRoot.querySelector('iframe.editor');
+    this._editorOpen = false;
     const root = this.shadowRoot;
     root.querySelector('.collapse').onclick = () => this._setToolsOpen(false, true);
     root.querySelector('.tools').onkeydown = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); this._setToolsOpen(false, true); }
     };
+    root.querySelector('.edit').onclick = () => this._openEditor();
     root.querySelector('.import').onclick = () => root.querySelector('.file').click();
     root.querySelector('.file').onchange = (e) => {
       const file = e.target.files?.[0]; e.target.value = '';
@@ -564,6 +570,8 @@ class HouseControlCard extends HTMLElement {
     root.querySelector('.save').disabled = this._saving || this._importing || !this._ready || !this._hass?.user?.is_admin;
     root.querySelector('.save').title = this._hass?.user?.is_admin ? 'После подтверждения план навсегда сохранится в этот дашборд' : 'Для сохранения нужна учётная запись администратора';
     for (const name of ['import', 'reset', 'export']) root.querySelector(`.${name}`).disabled = Boolean(this._saving || this._importing);
+    root.querySelector('.edit').disabled = Boolean(this._saving || this._importing || !this._hass?.user?.is_admin);
+    if (!this._hass?.user?.is_admin) root.querySelector('.edit').title = 'Редактор доступен администратору';
     this._syncEditor();
   }
 
@@ -667,6 +675,93 @@ class HouseControlCard extends HTMLElement {
     }
   }
 
+  /* ---------- plan editor ---------- */
+
+  // House Control's own editor, in a second sandboxed frame over the card. It never writes to the
+  // dashboard: "save" hands the plan back as a preview, and the card's own vetted save (admin only,
+  // registry check, backup download, confirmation) is the only thing that stores it.
+  _openEditor() {
+    if (!this._editor || this._saving || this._importing || !this._hass?.user?.is_admin) return;
+    const app = new URL(this._src);
+    app.searchParams.set('mode', 'editor');
+    app.hash = encodePlan(this._preview || this._activePlan);
+    this._editor.src = app.href;
+    this._editor.hidden = false;
+    this._editorOpen = true;
+    this._setToolsOpen(false);
+  }
+
+  _closeEditor() {
+    if (!this._editor) return;
+    this._editor.hidden = true;
+    this._editor.src = 'about:blank';
+    this._editorOpen = false;
+  }
+
+  // What the editor may link a lamp, an AC or a room thermometer to: the entities of this Home Assistant.
+  async _editorDevices() {
+    const ask = async (type) => {
+      const r = await this._hass.connection.sendMessagePromise({ type });
+      return Array.isArray(r) ? r : [];
+    };
+    const [entities, devices, areas] = await Promise.all(['config/entity_registry/list', 'config/device_registry/list', 'config/area_registry/list'].map(ask));
+    const registry = new Map(entities.map((e) => [e.entity_id, e]));
+    const device = new Map(devices.map((d) => [d.id, d]));
+    const area = new Map(areas.map((a) => [a.area_id, a.name]));
+    const required = this._config.platform === undefined ? 'xiaomi_home' : this._config.platform;
+    const out = [];
+    for (const [id, s] of Object.entries(this._hass.states || {})) {
+      const domain = id.split('.')[0];
+      const kind = ['light', 'switch', 'input_boolean', 'fan', 'cover', 'vacuum'].includes(domain) ? 'light'
+        : domain === 'climate' ? 'ac'
+          : domain === 'sensor' && s.attributes?.device_class === 'temperature' ? 'sensor' : null;
+      if (!kind) continue;
+      const e = registry.get(id);
+      // Settings and diagnostics of a device (child lock, indicator light) are not things to put on a plan.
+      if (!e || e.disabled_by || e.hidden_by || e.entity_category) continue;
+      if (required && required !== '*' && e.platform !== required) continue;
+      out.push({
+        service: 'homeassistant', id, kind,
+        name: String(s.attributes?.friendly_name || id).slice(0, 200),
+        room: area.get(e.area_id ?? device.get(e.device_id)?.area_id) || '',
+        detail: id,
+        online: !offline(s),
+      });
+    }
+    out.sort((a, b) => a.room.localeCompare(b.room) || a.name.localeCompare(b.name));
+    return { devices: out, errors: {} };
+  }
+
+  async _editorCall(msg) {
+    const services = { homeassistant: { connected: true, name: 'Home Assistant' } };
+    if (msg.type === 'services.info') return services;
+    if (msg.type === 'devices.all') return this._editorDevices();
+    if (msg.type === 'exportPlan') { downloadJSON(msg.config, 'plan.json'); return { ok: true }; }
+    if (msg.type === 'savePlan') {
+      if (!this._hass?.user?.is_admin) throw new Error('Для сохранения нужна учётная запись администратора');
+      const plan = JSON.parse(JSON.stringify(msg.config));
+      await this._checkBindings(plan);
+      this._preview = plan; this._previewName = 'из редактора'; this._notice = '';
+      this._toolsOpen = true;
+      // Back to the card: the edited plan is shown as a preview until "Сохранить в HA" is confirmed.
+      queueMicrotask(() => { this._closeEditor(); this._loadPlan(plan); });
+      return {};
+    }
+    throw new Error(msg.type === 'importPlan' ? 'Импорт — кнопкой «Импорт плана» в карточке' : 'Недоступно в Home Assistant');
+  }
+
+  _onEditorMessage(e) {
+    const msg = e.data.msg || {};
+    if (msg.type === 'close') { this._closeEditor(); this._setToolsOpen(true); return; }
+    if (msg.callId === undefined) return; // ready, haptics and other one-way notes
+    const sender = e.source;
+    const reply = (result) => { if (sender === this._editor?.contentWindow) sender.postMessage({ __houseHost: 1, fn: 'reply', args: [msg.callId, result] }, '*'); };
+    this._editorCall(msg).then(
+      (result) => reply(result),
+      (err) => reply({ error: String(err?.message || err || 'Ошибка вызова') }),
+    );
+  }
+
   _send(fn, ...args) {
     this._frame?.contentWindow?.postMessage({ __houseHost: 1, fn, args }, '*');
   }
@@ -695,6 +790,7 @@ class HouseControlCard extends HTMLElement {
   }
 
   _onMessage(e) {
+    if (this._editorOpen && this._editor && e.source === this._editor.contentWindow && e.data?.__house) { this._onEditorMessage(e); return; }
     if (!this._frame || e.source !== this._frame.contentWindow || !e.data?.__house) return;
     const msg = e.data.msg || {};
     if (msg.type === 'ready') {

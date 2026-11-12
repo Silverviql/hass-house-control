@@ -17,7 +17,7 @@ if [ ! -d "$HC/web" ]; then
   exit 1
 fi
 
-(cd "$HC/web" && npm run build --silent >/dev/null)
+(cd "$HC/web" && HOUSE_SINGLE_FILE=1 npm run build --silent >/dev/null)
 
 rm -rf "$HERE/.build"
 cp -R "$HC/web/dist" "$HERE/.build"

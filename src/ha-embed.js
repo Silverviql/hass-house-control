@@ -18,7 +18,9 @@
   } catch (e) {
     console.error('[house-embed] cannot read the plan from the URL', e);
   }
-  window.__HOUSE_BOOT__ = config ? { config: config, plan: 'custom', platform: 'web' } : { plan: 'home', platform: 'web' };
+  // In the editor, Home Assistant is the one connected platform: its entities are what a lamp can be linked to.
+  var services = { homeassistant: { connected: true, name: 'Home Assistant' } };
+  window.__HOUSE_BOOT__ = config ? { config: config, plan: 'custom', platform: 'web', services: services } : { plan: 'home', platform: 'web' };
 
   var host = window.parent;
   if (!host || host === window) return; // opened on its own: behave like the plain web demo

@@ -59,6 +59,14 @@ The room last looked at and the climate chips' on/off are remembered per dashboa
 them for the sandboxed 3D app). A card taller than it is wide (a tablet held upright) puts the model above the
 controls instead of beside them.
 
+**Plan editor.** The tools bar (the sliders button beside the home's name) has an **Редактор** button for
+administrators. It opens House Control's own editor over the card: a top-down plan to drag rooms, furniture, lamps,
+doors and windows on, an inspector, a 3D preview, undo and redo, and pickers that link a lamp or an AC to an entity
+of this Home Assistant. The editor never writes to the dashboard itself: **Save & apply** hands the plan back to the
+card as a read-only preview, and the card's own save (registry check, confirmation, backup download) stores it.
+The editor is still in English, and it does not yet know how to edit this fork's own shapes: dragging a group of
+spots or a light line of several runs moves only its handle, not its points. Nothing is lost on the way through it.
+
 **Wall tablet.** With [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) installed, open the dashboard with
 `?kiosk` (for example `/dom-3d/home?kiosk`) to hide Home Assistant's header and sidebar. Add `&cache` to keep it
 on that device across reloads, and open `?clear_km_cache` to undo that.
