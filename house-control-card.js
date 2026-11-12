@@ -712,18 +712,24 @@ class HouseControlCard extends HTMLElement {
     const out = [];
     for (const [id, s] of Object.entries(this._hass.states || {})) {
       const domain = id.split('.')[0];
-      const kind = ['light', 'switch', 'input_boolean', 'fan', 'cover', 'vacuum'].includes(domain) ? 'light'
-        : domain === 'climate' ? 'ac'
-          : domain === 'sensor' && s.attributes?.device_class === 'temperature' ? 'sensor' : null;
+      const cls = s.attributes?.device_class;
+      const kind = ['light', 'switch', 'input_boolean', 'fan'].includes(domain) ? 'light'
+        : ['cover', 'vacuum', 'weather', 'sun'].includes(domain) ? domain
+          : domain === 'climate' ? 'ac'
+            : domain !== 'sensor' ? null
+              : cls === 'temperature' ? 'sensor' : cls === 'humidity' ? 'humidity'
+                : cls === 'atmospheric_pressure' || cls === 'pressure' ? 'pressure' : null;
       if (!kind) continue;
       const e = registry.get(id);
+      // The sun and a weather forecast may have no registry entry; they are only read.
+      const readOnly = kind === 'weather' || kind === 'sun';
       // Settings and diagnostics of a device (child lock, indicator light) are not things to put on a plan.
-      if (!e || e.disabled_by || e.hidden_by || e.entity_category) continue;
-      if (required && required !== '*' && e.platform !== required) continue;
+      if (!e ? !readOnly : (e.disabled_by || e.hidden_by || e.entity_category)) continue;
+      if (!readOnly && required && required !== '*' && e.platform !== required) continue;
       out.push({
         service: 'homeassistant', id, kind,
         name: String(s.attributes?.friendly_name || id).slice(0, 200),
-        room: area.get(e.area_id ?? device.get(e.device_id)?.area_id) || '',
+        room: area.get(e?.area_id ?? device.get(e?.device_id)?.area_id) || '',
         detail: id,
         online: !offline(s),
       });

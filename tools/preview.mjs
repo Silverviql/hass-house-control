@@ -9,6 +9,7 @@
 //      SUN=elevation of sun.sun in degrees (default 25: day; -10 for night).
 //      TAP="name" finds that device in the 3D view by its hover tooltip and taps it.
 //      TOUCH=1 emulates a phone's touch screen (no hover).
+//      DRAG="x1,y1,x2,y2;..." drags with the mouse (page pixels), after ACT.
 //      PACT="js" runs in the dashboard page first (window.__card is the card), then waits PWAIT ms.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -128,6 +129,17 @@ if (process.env.TAP) {
 if (process.env.ACT) {
   await appFrame().evaluate(process.env.ACT);
   await page.waitForTimeout(1500);
+}
+if (process.env.DRAG) {
+  // "x1,y1,x2,y2[;...]" in page pixels: press, move in steps, release.
+  for (const part of process.env.DRAG.split(';')) {
+    const [x1, y1, x2, y2] = part.split(',').map(Number);
+    await page.mouse.move(x1, y1);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) await page.mouse.move(x1 + (x2 - x1) * i / 6, y1 + (y2 - y1) * i / 6);
+    await page.mouse.up();
+    await page.waitForTimeout(600);
+  }
 }
 if (process.env.RELOAD) {
   await page.reload();
