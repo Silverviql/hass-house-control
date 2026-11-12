@@ -579,6 +579,9 @@ class HouseControlCard extends HTMLElement {
     const indexed = new Map(registry.map((e) => [e.entity_id, e]));
     for (const id of entities) {
       const e = indexed.get(id);
+      // Entities without a unique id (sun.sun, a YAML template sensor) are not in the registry. Only
+      // read-only ones are let through on their live state: anything that gets commands must be registered.
+      if (!e && ['sun', 'weather', 'sensor'].includes(id.split('.')[0]) && this._hass.states?.[id]) continue;
       if (!e) throw new Error(`Устройство не найдено: ${id}`);
       if (required && required !== '*' && e.platform !== required) throw new Error(`Устройство ${id} из ${e.platform || 'неизвестная интеграция'}; этот план допускает только ${required === 'xiaomi_home' ? 'Xiaomi Home' : required}`);
       if (e.disabled_by) throw new Error(`Устройство отключено: ${id}`);
