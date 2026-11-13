@@ -208,7 +208,7 @@ function stableJSON(v) {
   if (object(v)) return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJSON(v[k])}`).join(',')}}`;
   return JSON.stringify(v);
 }
-function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
+function validatePlan(plan, { acRule = false, awayScene = 'away' } = {}) {
   const need = (ok, text) => { if (!ok) throw new Error(`Ошибка проверки плана: ${text}`); };
   need(object(plan), 'Нужен JSON-объект');
   need(new TextEncoder().encode(JSON.stringify(plan)).length <= MAX_PLAN_BYTES, 'Файл не должен превышать 1 МБ');
@@ -311,9 +311,9 @@ function validatePlan(plan, { acRule = true, awayScene = 'away' } = {}) {
         for (const [k, choices] of [['mode', ['cool', 'heat', 'dry', 'fan', 'auto']], ['fan', FAN_ORDER], ['swing', ['off', 'swing']]]) if (k in patch) need(choices.includes(patch[k]), `${scene.id}.${k} неверно`);
       }
     }
-    // This home's established rule: only the Away scene may turn ACs off. It is on by default
-    // for this deployment; set `ac_rule: false` for a home that wants scenes to drive ACs,
-    // and `away_scene: leave` if the leaving scene is not called "away".
+    // Optional rule (`ac_rule: true`): only the Away scene may turn ACs off and no other scene may
+    // touch them; `away_scene: leave` if the leaving scene is not called "away". Off by default in this
+    // fork: the editor lets a scene name what it does to each AC and to underfloor heating.
     if (acRule) need(sameJSON(scene.acs || {}, scene.id === awayScene ? { '*': { on: false } } : {}), `${scene.id} нарушает правило кондиционеров: только ${awayScene === 'away' ? 'Ушёл' : ` ${awayScene} `} может выключать кондиционеры, остальные сцены не должны их трогать`);
   }
   // Room climate and the weather outside: plain entity ids, checked against the registry like every other binding.
@@ -576,7 +576,7 @@ class HouseControlCard extends HTMLElement {
   }
 
   async _checkBindings(plan) {
-    const entities = validatePlan(plan, { acRule: this._config.ac_rule !== false, awayScene: this._config.away_scene || 'away' });
+    const entities = validatePlan(plan, { acRule: this._config.ac_rule === true, awayScene: this._config.away_scene || 'away' });
     if (!entities.size) return;
     if (!this._hass?.connection) throw new Error('HA ещё не подключён, нельзя проверить источник устройств');
     // Only let a plan bind to entities from one integration. Defaults to Xiaomi Home (the

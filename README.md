@@ -67,7 +67,9 @@ card as a read-only preview, and the card's own save (registry check, confirmati
 It knows this fork's shapes: a group of spots is dragged as one and each spot by its own dot, a light line has a
 dot on every corner (and buttons to add corners and separate runs), and the inspector covers appliances, underfloor
 heating, lamps behind a shared switch, pieces of a room, each room's climate sensors and the weather, sun and
-pressure outside. Buttons at the bottom add a room, a light, an AC, an appliance, underfloor heating, a door, a
+pressure outside. A scene says what it does to each lamp (with brightness and white temperature where the lamp has them), each
+appliance (a blind: open, closed or open to a percentage; a vacuum: clean or dock) and each AC or underfloor heating
+(on with a temperature, or off). Buttons at the bottom add a room, a light, an AC, an appliance, underfloor heating, a door, a
 window, stairs or furniture. The editor is in Russian; the screens for connecting other platforms (Smart Life, Hue,
 Apple Home), which the card never shows, are not translated.
 
@@ -114,7 +116,8 @@ plan: { ... }              # required: the floor plan (House Control's plan.json
 quality: high              # optional: high | medium | low  (omit = pick from the device and auto step-down)
 platform: "*"              # optional: require plan entities to come from one integration.
                            # default "xiaomi_home"; set another id, or "*" to accept any integration
-ac_rule: true              # optional: only the Away scene may switch ACs off (default true)
+ac_rule: false             # optional: true = only the Away scene may switch ACs off, no other scene
+                           # may touch them (upstream's default; off in this fork)
 away_scene: away           # optional: the id of that "Away" scene (default "away")
 app_url: /local/house-control/embed.html   # optional: serve the app from somewhere else
 dashboard_path: null       # optional: which dashboard to save an imported plan into
